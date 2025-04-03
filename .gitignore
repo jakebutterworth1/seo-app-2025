@@ -1,0 +1,12 @@
+# Prevent secrets
+.env
+
+# Ignore Python build files
+__pycache__/
+*.pyc
+
+# Ignore Node.js packages
+node_modules/
+
+# Ignore Next.js build output
+.next/

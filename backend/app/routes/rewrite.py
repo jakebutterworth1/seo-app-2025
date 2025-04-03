@@ -6,7 +6,8 @@ import openai
 import json
 import re
 
-load_dotenv()
+load_dotenv(dotenv_path="./backend/.env")
+
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 

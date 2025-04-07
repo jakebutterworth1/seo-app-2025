@@ -1,3 +1,5 @@
+# app/routes/analyze.py
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import openai
@@ -5,22 +7,24 @@ import os
 from dotenv import load_dotenv
 import json
 import re
+import requests
 
-load_dotenv(dotenv_path="./backend/.env")
-
-
+load_dotenv()
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 router = APIRouter()
 
 class AnalyzeRequest(BaseModel):
     content: str
-    location: str  # Still included to pass forward manually to estimates later
+    location: str
 
 class AnalyzeResponse(BaseModel):
     intent: str
     primary_keywords: list[str]
     secondary_keywords: list[str]
+    seo_score: int
+    initial_optimization_suggestions: list[str]
+    keyword_data: list[dict]
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_content(data: AnalyzeRequest):
@@ -42,7 +46,9 @@ Return your analysis in **strict, valid JSON only**. Do not add any commentary. 
 {{
   "intent": "informational" | "transactional" | "commercial" | "navigational",
   "primary_keywords": ["...", "...", "...", "...", "..."],
-  "secondary_keywords": ["...", "...", "...", "...", "..."]
+  "secondary_keywords": ["...", "...", "...", "...", "..."],
+  "seo_score": 0-100,
+  "initial_optimization_suggestions": ["..."]
 }}
 
 Content:
@@ -54,23 +60,34 @@ Content:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an expert SEO analyst. Respond ONLY in valid JSON format."},
+                {"role": "system", "content": "You're a helpful SEO tool. Respond ONLY in strict JSON."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.4
+            temperature=0.3
         )
 
         raw = response.choices[0].message.content.strip()
         json_match = re.search(r"\{.*\}", raw, re.DOTALL)
         if not json_match:
-            raise ValueError("OpenAI did not return valid JSON.")
+            raise ValueError("Invalid JSON from OpenAI")
 
         result = json.loads(json_match.group(0))
+        keywords = result["primary_keywords"] + result["secondary_keywords"]
+
+        # Get keyword estimates
+        estimate_res = requests.post(
+            "http://localhost:8000/keyword-estimates",
+            json={"keywords": keywords, "location": data.location}
+        )
+
+        if estimate_res.status_code != 200:
+            raise ValueError("Keyword estimate API failed")
+
+        keyword_data = estimate_res.json()
 
         return {
-            "intent": result["intent"],
-            "primary_keywords": result["primary_keywords"],
-            "secondary_keywords": result["secondary_keywords"]
+            **result,
+            "keyword_data": keyword_data
         }
 
     except Exception as e:
